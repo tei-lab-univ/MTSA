@@ -1,0 +1,49 @@
+name: Sync from GitLab
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout GitHub Repository
+        uses: actions/checkout@v6
+        with:
+          ref: sync
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Cleanup GitHub Workspace
+        run: |
+          # .git と .gitignore 以外を削除
+          find . -maxdepth 1 ! -name ".git" ! -name ".gitignore" ! -name "." -exec rm -rf {} +
+
+      - name: Clone GitLab Repository
+        run: |
+          # MTSA リポジトリを一時ディレクトリにクローンして内容をコピー
+          git clone --depth 1 https://git.exactas.uba.ar/lafhis/mtsa.git tmp
+
+          # GitLab側の最新コミットハッシュを取得して環境変数に保存
+          cd tmp
+          echo "GITLAB_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          cd ..
+
+          # .git と .gitignore を削除してから内容をルートにコピー
+          rm -rf tmp/.git
+          find tmp -name ".gitignore" -type f -delete # ルート以外の .gitignore が悪さをすることがあるのですべて削除
+          cp -rf tmp/. ./
+          rm -rf tmp
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and Push
+        run: |
+          git add -A
+          git commit --allow-empty -m "Update from GitLab (sha: $GITLAB_SHA)"
+          git push origin sync
